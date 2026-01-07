@@ -23,22 +23,21 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Environment info
       run: |
+        uname -a
         python --version
-        pip --version
-        pip list
         pwd
         ls -la
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install ruff
-        if [ -f requirements/test.txt ]; then pip install -r requirements/test.txt; fi
+        python -m pip install -r ./requirements/test.txt
     - name: Lint with Ruff
       run: |
         # static check
         ruff check .
         # format check
-        ruff format --differencies
+        ruff format --diff
     - name: Test with Pytest
       run: |
         pytest tests
