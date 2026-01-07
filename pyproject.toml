@@ -2,6 +2,7 @@
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "gzm-client"
 authors = [
@@ -11,30 +12,20 @@ description = "GZM Transport Client with CLI or Python API"
 readme = "README.md"
 requires-python = ">=3.10"
 version = "0.2.0"
-dependencies = [
-    "requests>=2.31.0",
-    "httpx>=0.27.0",
-    "rich>=13.7.0",
-]
+
+# Use setuptools to read requirements files for dependencies
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements/base.txt"] }
+optional-dependencies.test = { file = ["requirements/test.txt"] }
 
 [project.scripts]
 gzm-client = "gzm_client.cli:main"
-
-[project.optional-dependencies]
-spark = [
-    "pyspark>=3.0.0"
-]
-test = [
-    "black==23.3.0",
-    "flake8-docstrings",
-    "flake8",
-    "flake8-pyproject",
-    "pre-commit==3.3.1",
-    "pytest-cov==4.0.0",
-    "pytest-mock<3.10.1",
-    "pytest-runner",
-    "pytest==7.3.1",
-]
 
 [tool.black]
 line-length = 120
@@ -74,9 +65,3 @@ pythonpath = [
   "src"
 ]
 testpaths = "tests"
-
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]

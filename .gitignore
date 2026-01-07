@@ -29,3 +29,14 @@ Thumbs.db
 .xml/
 .coverage
 htmlcov/
+
+# ruff cache
+__ruff_cache__/
+.ruff_cache/
+
+# pytest cache
+.pytest_cache/
+.cache/
+.coverage
+nosetests.xml
+coverage.xml
