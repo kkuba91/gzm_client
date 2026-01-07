@@ -21,6 +21,13 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Environment info
+      run: |
+        python --version
+        pip --version
+        pip list
+        pwd
+        ls -la
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
