@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+build/
+dist/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+*.sqlite
+
+# Reports
+.xml/
+.coverage
+htmlcov/
+
+# ruff cache
+__ruff_cache__/
+.ruff_cache/
+
+# pytest cache
+.pytest_cache/
+.cache/
+.coverage
+nosetests.xml
+coverage.xml

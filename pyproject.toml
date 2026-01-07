@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "gzm-client"
+authors = [
+    {name = "Kuba Kochaniak", email = "kkuba91@o2.pl"},
+]
+description = "GZM Transport Client with CLI or Python API"
+readme = "README.md"
+requires-python = ">=3.10"
+version = "0.2.0"
+
+# Use setuptools to read requirements files for dependencies
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements/base.txt"] }
+optional-dependencies.test = { file = ["requirements/test.txt"] }
+
+[project.scripts]
+gzm-client = "gzm_client.cli:main"
+
+[tool.black]
+line-length = 120
+fast = true
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+fail_under = 30
+
+[tool.flake8]
+max-line-length = 120
+select = "F,E,W,B,B901,B902,B903"
+exclude = [
+    ".eggs",
+    ".git",
+    ".tox",
+    "nssm",
+    "obj",
+    "out",
+    "packages",
+    "pywin32",
+    "tests",
+    "swagger_client"
+]
+ignore = [
+    "E722",
+    "B001",
+    "W503",
+    "E203"
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov-report xml:coverage.xml --cov src --cov-fail-under 0 --cov-append -m 'not integration'"
+pythonpath = [
+  "src"
+]
+testpaths = "tests"
