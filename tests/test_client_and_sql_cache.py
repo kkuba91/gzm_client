@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from gzm_client.client import GzmClient
-from gzm_client.utils.sql_cache import StopsSqlCache
+
 
 # -------------------
 # GzmClient API tests
@@ -9,6 +9,7 @@ from gzm_client.utils.sql_cache import StopsSqlCache
 @pytest.fixture
 def client():
     return GzmClient(db_path=":memory:")
+
 
 @patch("gzm_client.client.requests.Session.get")
 def test_update_api_success(mock_get, client):
@@ -23,6 +24,7 @@ def test_update_api_success(mock_get, client):
         result = client.update_api()
         assert result["updated"] == "api"
         assert result["stops_count"] == 1
+
 
 @patch("gzm_client.client.requests.Session.get")
 def test_update_api_invalid_payload(mock_get, client):
