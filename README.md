@@ -1,5 +1,7 @@
 # gzm-client
 
+[![gzm_client](https://github.com/kkuba91/gzm_client/actions/workflows/python-package.yml/badge.svg)](https://github.com/kkuba91/gzm_client/actions/workflows/python-package.yml)
+
 Python library + CLI for GZM public transport data (stops, departures, vehicles) with optional integrations:
 
 - GZM SDIP endpoints (stops list, departures, simplified vehicle info)
