@@ -1,4 +1,7 @@
-# CHANGELOG.md
+# CHANGELOG
+
+# 0.2.2
+- Update `README.md` with examples
 
 # 0.2.1
 - Updates into the workflow, to proceed with package release

@@ -11,7 +11,7 @@ authors = [
 description = "GZM Transport Client with CLI or Python API"
 readme = "README.md"
 requires-python = ">=3.10"
-version = "0.2.1"
+version = "0.2.2"
 
 # Use setuptools to read requirements files for dependencies
 [tool.setuptools]
