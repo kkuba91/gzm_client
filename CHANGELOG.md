@@ -1,5 +1,10 @@
 # CHANGELOG
 
+# 0.2.3
+- Update `README.md` with .gif examples
+- Merge `update_api` into one form
+- Change blue color inot brighter one
+
 # 0.2.2
 - Update `README.md` with examples
 
