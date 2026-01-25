@@ -90,15 +90,7 @@ Examples:
 
 - `gzm-client update_api`
 
-```bash
-❯ gzm-client update_api
-╭───────────────────────────────────────────────────── API cached ─────────────────────────────────────────────────────╮
-│ Updated database from API (stops + bikes).                                                                           │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭──────────────────────────────────────────────────────── SKUP ────────────────────────────────────────────────────────╮
-│ Ticket machines cached: 125                                                                                          │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![update_api](./img/update_api.gif)
 
 - `gzm-client --db my.db update_api`
 
@@ -114,26 +106,7 @@ Examples:
 		- nearby Nextbike stations (with average distance)
 		- ticket machine proximity info (300m radius)
 
-```bash
-❯ gzm-client junction Wojkowice Park
-╭─────────────────────────────────── Junction for 'Wojkowice Park' (2 stops found). ───────────────────────────────────╮
-│ ╭─────────────────────── Stop: Wojkowice Park | ID=2205 | ALT=1 | TYPE=Autobus | WOJKOWICE ────────────────────────╮ │
-│ │ Lines: 24, 25, 52, 99, 104, 133, 722, 904N, M11                                                                  │ │
-│ │ Ticket machine: NO                                                                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────────── Stop: Wojkowice Park | ID=2206 | ALT=2 | TYPE=Autobus | WOJKOWICE ────────────────────────╮ │
-│ │ Lines: 24, 25, 43, 52, 99, 100, 103, 104, 700, 721, 722, 904N, 911N, M11                                         │ │
-│ │ Ticket machine: NO                                                                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│                                                                                                                      │
-│ Nearby bike stations                                                                                                 │
-│ ┏━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━┓                                          │
-│ ┃ Id        ┃ Station ┃ Location               ┃ Distance ┃ Bikes ┃ Docks ┃                                          │
-│ ┡━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━┩                                          │
-│ │ 451953727 │ 27542   │ [50.365813, 19.033542] │ 223m     │ 3     │ 2     │                                          │
-│ └───────────┴─────────┴────────────────────────┴──────────┴───────┴───────┘                                          │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![junction](./img/junction.gif)
 
 - `gzm-client stop STOP_ID`
 	- Prints upcoming departures for a stop id
@@ -143,128 +116,17 @@ Examples:
 
 - `gzm-client list Wojkowice`
 
-```bash
-❯ gzm-client list Wojkowice
-╭───────────────────────────────────────────────── Stops in Wojkowice ─────────────────────────────────────────────────╮
-│ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                                                  │
-│ ┃ Stop (group of platforms)    ┃ Platform IDs                     ┃                                                  │
-│ ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩                                                  │
-│ │ Kamyce Posesja 500           │ ["1263", "1262"]                 │                                                  │
-│ │ Kamyce Remiza nż             │ ["1259", "1258"]                 │                                                  │
-│ │ Kamyce Wygoda                │ ["1260", "1261"]                 │                                                  │
-│ │ Wojkowice Akacjowa           │ ["5551", "5548"]                 │                                                  │
-│ │ Wojkowice Brzeziny           │ ["3574", "3573"]                 │                                                  │
-│ │ Wojkowice Brzeziny 76 nż     │ ["5341", "5342"]                 │                                                  │
-│ │ Wojkowice Cmentarz           │ ["5543", "5542"]                 │                                                  │
-│ │ Wojkowice Długosza           │ ["671", "670"]                   │                                                  │
-│ │ Wojkowice Fabryczna          │ ["5311", "5310"]                 │                                                  │
-│ │ Wojkowice Giełda             │ ["731", "732"]                   │                                                  │
-│ │ Wojkowice Głowackiego 126 nż │ ["1097", "1098"]                 │                                                  │
-│ │ Wojkowice Głowackiego 31 nż  │ ["1099", "1100"]                 │                                                  │
-│ │ Wojkowice Harcerska          │ ["3609", "3608"]                 │                                                  │
-│ │ Wojkowice Kościół            │ ["3576", "3579", "3578", "3577"] │                                                  │
-│ │ Wojkowice Krzyżówka          │ ["1518", "1516", "1517"]         │                                                  │
-│ │ Wojkowice Morcinka           │ ["5312", "5309"]                 │                                                  │
-│ │ Wojkowice Morcinka Wiadukt   │ ["5547", "5546"]                 │                                                  │
-│ │ Wojkowice Ośrodek Zdrowia nż │ ["1910", "1911"]                 │                                                  │
-│ │ Wojkowice Park               │ ["2205", "2206"]                 │                                                  │
-│ │ Wojkowice Skłodowskiej-Curie │ ["5549", "5552"]                 │                                                  │
-│ │ Wojkowice Spokojna           │ ["5553", "5550"]                 │                                                  │
-│ │ Wojkowice Spółdzielnia nż    │ ["5339", "5340"]                 │                                                  │
-│ │ Wojkowice Sucharskiego       │ ["5545", "5544"]                 │                                                  │
-│ │ Wojkowice Łęg                │ ["2990", "2992", "2991"]         │                                                  │
-│ │ Żychcice Cmentarz            │ ["5314", "5313"]                 │                                                  │
-│ │ Żychcice Piaski 117          │ ["75", "74"]                     │                                                  │
-│ │ Żychcice Piaski 37           │ ["70", "71"]                     │                                                  │
-│ │ Żychcice Piaski 79           │ ["73", "72"]                     │                                                  │
-│ │ Żychcice Pętla               │ ["4439", "4438", "7431"]         │                                                  │
-│ │ Żychcice Stara 113           │ ["79", "78"]                     │                                                  │
-│ │ Żychcice Stara 54            │ ["76", "77"]                     │                                                  │
-│ └──────────────────────────────┴──────────────────────────────────┘                                                  │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![list](./img/list.gif)
 
-- `gzm-client junction Nowak-Mosty Będzin Arena`
+- `gzm-client junction Nowak-Mosty Będzin Arena`  - example with platform for trams and busses
 
-```bash
-❯ gzm-client junction Nowak-Mosty Będzin Arena
-╭────────────────────────────── Junction for 'Nowak-Mosty Będzin Arena' (8 stops found). ──────────────────────────────╮
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10053 | ALT=1 | TYPE=Autobus | BĘDZIN ────────────────────╮ │
-│ │ Lines: 27, 40, 42, 61, 200, 616, 721, 902N, 916                                                                  │ │
-│ │ Ticket machine: YES (18m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10054 | ALT=1t | TYPE=Tramwaj | BĘDZIN ───────────────────╮ │
-│ │ Lines: 15, 21, 24, 26, 27, 34, 36                                                                                │ │
-│ │ Ticket machine: YES (97m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10055 | ALT=2 | TYPE=Autobus | BĘDZIN ────────────────────╮ │
-│ │ Lines: 16, 24, 25, 27, 28, 40, 67, 79, 97, 99, 104, 107, 124, 125, 200, 243, 260, 269, 612, 625, 722, 807, 901,  │ │
-│ │ 904N, 916, 921, M19, M23                                                                                         │ │
-│ │ Ticket machine: YES (66m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10056 | ALT=2t | TYPE=Tramwaj | BĘDZIN ───────────────────╮ │
-│ │ Lines: 15, 21, 24, 26, 27, 34, 36                                                                                │ │
-│ │ Ticket machine: YES (68m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10057 | ALT=3 | TYPE=Autobus | BĘDZIN ────────────────────╮ │
-│ │ Lines: 16, 24, 25, 28, 40, 42, 61, 67, 79, 90, 97, 99, 104, 107, 124, 125, 200, 260, 269, 616, 625, 721, 722,    │ │
-│ │ 800, 901, 902N, 904N, 921, M19, M23                                                                              │ │
-│ │ Ticket machine: YES (23m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10060 | ALT=4 | TYPE=Autobus | BĘDZIN ────────────────────╮ │
-│ │ Lines: 800, 813                                                                                                  │ │
-│ │ Ticket machine: YES (39m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                               │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10058 | ALT=5 | TYPE=Autobus | BĘDZIN ────────────────────╮ │
-│ │ Lines: 813, 916                                                                                                  │ │
-│ │ Ticket machine: YES (165m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                              │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│ ╭─────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10059 | ALT=6 | TYPE=Autobus | BĘDZIN ────────────────────╮ │
-│ │ Lines: 807, 916                                                                                                  │ │
-│ │ Ticket machine: YES (110m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                              │ │
-│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
-│                                                                                                                      │
-│ Nearby bike stations                                                                                                 │
-│ ┏━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━┓                                          │
-│ ┃ Id        ┃ Station ┃ Location               ┃ Distance ┃ Bikes ┃ Docks ┃                                          │
-│ ┡━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━┩                                          │
-│ │ 339753256 │ 27784   │ [50.319485, 19.124995] │ 79m      │ 4     │ 1     │                                          │
-│ └───────────┴─────────┴────────────────────────┴──────────┴───────┴───────┘                                          │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![bedzin](./img/bedzin.gif)
 
-- `gzm-client stop 10055`
+- `gzm-client stop 2205`
 
-```bash
-❯ gzm-client stop 10055
-╭───────────────────────────── Stop: Nowak-Mosty Będzin Arena | ID=10055 | ALT=2 | BĘDZIN ─────────────────────────────╮
-│ Departures                                                                                                           │
-│ ┏━━━━━━━━━━━┳━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓                              │
-│ ┃ DID       ┃ Line ┃ Type ┃ Destination                                ┃ Arrival Time ┃                              │
-│ ┡━━━━━━━━━━━╇━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩                              │
-│ │ 852702651 │ M19  │ Bus  │ Pyrzowice Port Lotniczy (Katowice Airport) │ 37 min       │                              │
-│ │ 853524016 │ 67   │ Bus  │ Będzin Kościuszki                          │ 03:57        │                              │
-│ │ 853770647 │ 97   │ Bus  │ Goląsza Dolna                              │ 04:03        │                              │
-│ │ 852714208 │ 104  │ Bus  │ Bytom Dworzec                              │ 04:06        │                              │
-│ │ 853140270 │ 40   │ Bus  │ Katowice Piotra Skargi                     │ 04:12        │                              │
-│ │ 852699178 │ M19  │ Bus  │ Pyrzowice Port Lotniczy (Katowice Airport) │ 04:12        │                              │
-│ │ 853028640 │ 25   │ Bus  │ Grodziec Różyckiego                        │ 04:13        │                              │
-│ │ 853634004 │ 722  │ Bus  │ Będzin Kościuszki                          │ 04:19        │                              │
-│ │ 852802836 │ 124  │ Bus  │ Będzin Kościuszki                          │ 04:19        │                              │
-│ │ 852806090 │ 125  │ Bus  │ Będzin Kościuszki                          │ 04:24        │                              │
-│ └───────────┴──────┴──────┴────────────────────────────────────────────┴──────────────┘                              │
-│ Ticket machine: YES (66m) - Automat ŚKUP - BĘDZIN (Będzin Stadion)                                                   │
-│                                                                                                                      │
-│ Nearby bike stations                                                                                                 │
-│ ┏━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━┓                                          │
-│ ┃ Id        ┃ Station ┃ Location               ┃ Distance ┃ Bikes ┃ Docks ┃                                          │
-│ ┡━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━┩                                          │
-│ │ 339753256 │ 27784   │ [50.319485, 19.124995] │ 34m      │ 4     │ 1     │                                          │
-│ └───────────┴─────────┴────────────────────────┴──────────┴───────┴───────┘                                          │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![stop](./img/stop.gif)
 
-- `gzm-client --json stop 10055`
+- `gzm-client --json stop 10055`. - other stop's location, all data in stdout returned in JSON
 
 ```bash
 ❯ gzm-client --json stop 10055
@@ -331,18 +193,9 @@ Examples:
 
 Example:
 
-- `gzm-client go 852701434`  -  *IMPORTANT*: DID vehicle must begun the journey (if still not departured, error will appear)
+- `gzm-client go 873172286`  -  *IMPORTANT*: DID vehicle must begun the journey (if still not departured, error will appear)
 
-```bash
-❯ gzm-client go 852701434
-╭──────────────────────────────────────────────────── Autobus: M19 ────────────────────────────────────────────────────╮
-│ line: M19  |  did=852701434  |  id=104_3121  |  type=Autobus                                                         │
-│ route: 'PYRZOWICE PORT LOTNICZY (KATOWICE AIRPORT) - SOSNOWIEC URZĄD MIASTA'                                         │
-│ next stop: 'Sarnów Główna' with time: 0 min                                                                          │
-│ deviation:                                                                                                           │
-│ position: (50.374224, 19.148556)                                                                                     │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![go](./img/go.gif)
 
 #### 4) Nextbike (GZM bikes)
 
@@ -354,33 +207,13 @@ Example:
 
 Examples:
 
-- `gzm-client bikes city Bobrowniki`
+- `gzm-client bikes city Wojkowice`
 
-```bash
-❯ gzm-client bikes city Bobrowniki
-╭────────────────────────────────────── Bike region: Bobrowniki (GZM) (uid=1221) ──────────────────────────────────────╮
-│ system: METROROWER,  hotline: +48800163030,  stations: 2,  booked: 0,  available bikes: 4                            │
-│ stations:                                                                                                            │
-│ -> id: 332519309,  name: None,  pos: (50.395951, 19.016923),  capacity: 5,  available: 3                             │
-│  Available bikes: [587683, 587138, 584337]                                                                           │
-│ -> id: 332520664,  name: None,  pos: (50.438768, 19.035108),  capacity: 4,  available: 1                             │
-│  Available bikes: [586997]                                                                                           │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![bikes_city](./img/bikes_city.gif)
 
 - `gzm-client bikes station 332519309`
 
-```bash
-❯ gzm-client bikes station 332519309
-╭────────────────────────────────────── Bike station: id=332519309 | name=27084 ───────────────────────────────────────╮
-│ Region: Bobrowniki (GZM) | (uid=1221) | system: METROROWER | hotline: +48800163030                                   │
-│ Station | id: 332519309,  name: 27084,  pos: (50.395951, 19.016923),  capacity: 5,  available: 3                     │
-│  Available bikes:                                                                                                    │
-│  -> number: 587683,  type: 71,  state: OK,  electric lock: True,  board_id: 83300013618                              │
-│  -> number: 587138,  type: 71,  state: OK,  electric lock: True,  board_id: 83300015858                              │
-│  -> number: 584337,  type: 71,  state: OK,  electric lock: True,  board_id: 83300014102                              │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![bikes_station](./img/bikes_station.gif)
 
 ## Notes on API integrations
 

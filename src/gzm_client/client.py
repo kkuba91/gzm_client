@@ -256,27 +256,16 @@ class GzmClient:
 
         if to_stdout:
             if bikes_updated:
-                self._print(
-                    Panel(
-                        "Updated database from API (stops + bikes).",
-                        title="API cached",
-                        border_style="green",
-                    )
-                )
+                info_msg = "Updated database from API (stops + bikes)."
             else:
-                self._print(
-                    Panel(
-                        "Updated database from API (stops).",
-                        title="API cached",
-                        border_style="green",
-                    )
-                )
+                info_msg = "Updated database from API (stops)."
                 if bikes_error:
                     self._warn(f"failed to update Nextbike bike data: {bikes_error}")
             if ticket_machines_updated:
+                info_msg += f"\nTicket machines cached: {ticket_machines_count or 0}"
                 self._print(
                     Panel(
-                        f"Ticket machines cached: {ticket_machines_count or 0}",
+                        info_msg,
                         title="SKUP",
                         border_style="green",
                     )
@@ -504,7 +493,7 @@ class GzmClient:
                         f"Lines: {', '.join(lines) if lines else 'N/A'}\n"
                         f"Ticket machine: {tm_status}{(' - ' + tm_name) if tm_name else ''}",
                         title=header,
-                        border_style="blue",
+                        border_style="deep_sky_blue1",
                     )
                 )
 
@@ -676,7 +665,9 @@ class GzmClient:
         renderables: list[Any] = []
         # Departures table
         if to_stdout and deps:
-            dt = Table(title="Departures", border_style="blue", title_justify="left")
+            dt = Table(
+                title="Departures", border_style="deep_sky_blue1", title_justify="left"
+            )
             dt.add_column("DID")
             dt.add_column("Line")
             dt.add_column("Type")
@@ -761,7 +752,9 @@ class GzmClient:
 
         if to_stdout and deps:
             header = f"Stop: {stop_row['name']} | ID={stop_row['id']} | ALT={stop_row['alt_id']} | {stop_row['municipality']}"
-            self._print(Panel(Group(*renderables), title=header, border_style="blue"))
+            self._print(
+                Panel(Group(*renderables), title=header, border_style="deep_sky_blue1")
+            )
 
         return {
             "stop": stop_out,
@@ -1180,7 +1173,11 @@ class GzmClient:
         )
         title = f"Bike region: {city.get('name')} (uid={city.get('uid')})"
         self._print(
-            Panel(f"{city_summary}{bike_stations}", border_style="blue", title=title)
+            Panel(
+                f"{city_summary}{bike_stations}",
+                border_style="deep_sky_blue1",
+                title=title,
+            )
         )
 
     def _print_bike_station_status_summary(self, compact: dict[str, Any]) -> None:
@@ -1194,7 +1191,7 @@ class GzmClient:
         self._print(
             Panel(
                 f"Region: {city.get('name')} | (uid={city.get('uid')}) | system: {country.get('name')} | hotline: {country.get('hotline')}\n{station}",
-                border_style="blue",
+                border_style="deep_sky_blue1",
                 title=f"Bike station: id={station.station_id} | name={station.name}",
             )
         )
