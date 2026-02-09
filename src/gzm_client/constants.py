@@ -32,6 +32,16 @@ GZM_BIKES_CITY_STATUS_FULL_URL = (
 
 BIKES_NEARBY_METERS = 300  # Search in distance of 300 meters for nearby bike stations
 
+# Overpass API for train stations (open street map data)
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+# Train station data from protalpasazera
+TRAIN_STATION_DEPARTURE_URL = (
+    "https://portalpasazera.pl/Wyswietlacz/PobierzDaneTablicy?s={sid_s}&m=0"
+)
+TRAIN_STATION_HTML_SID_FINDING_URL = (
+    "https://portalpasazera.pl/KatalogStacji/Index?stacja={query_name}"
+)
 
 VEHICLE_TYPE = {
     "0": "Tram",

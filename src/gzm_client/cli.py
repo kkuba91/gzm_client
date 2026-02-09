@@ -7,13 +7,76 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 
 from .client import GzmClient
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+
+
+class CustomHelpArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that can append extra help text.
+
+    Preserves the original argparse-generated help and only adds an extra
+    section at the end.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        if "formatter_class" not in kwargs:
+            kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
+        super().__init__(*args, **kwargs)
+        self._help_extra: str | None = None
+
+    def set_help_logo(self) -> str:
+        logo_text = """   _____  ______ __  __          
+  / ____||___  /|  \/  |         
+ | |  __    / / | \  / |         
+ | | |_ |  / /  | |\/| |         
+ | |__| | / /__ | |  | |         
+  \_____|/_____||_|  |_| - client
+The web scrapper for transportation data in the GZM area, Poland."""
+        return logo_text
+
+    def set_help_extra(self, text: str | None) -> None:
+        extra = (text or "").strip()
+        self._help_extra = extra if extra else None
+
+    def format_help(self) -> str:
+        base = super().format_help().rstrip()
+
+        chunks: list[str] = [self.set_help_logo().rstrip(), base]
+        if self._help_extra:
+            chunks.append(self._help_extra.rstrip())
+        all_help = "\n\n".join([c for c in chunks if c]) + "\n"
+
+        # Keep piped/redirected output clean (no ANSI / box drawing).
+        if not sys.stdout.isatty():
+            return all_help
+
+        width = shutil.get_terminal_size(fallback=(88, 20)).columns
+        console = Console(record=True, force_terminal=True, width=width)
+        console.print(
+            Panel(
+                Text(all_help.rstrip("\n"), style="grey", justify="left"),
+                border_style="yellow",
+                title="GZM Client Help",
+            )
+        )
+        return ""
+
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="gzm-client")
+    p = CustomHelpArgumentParser(prog="gzm-client")
+    p.set_help_extra(
+        "Examples:\n"
+        "  gzm-client update_api\n"
+        "  gzm-client list Katowice\n"
+        "  gzm-client junction Nowak-Mosty Będzin Arena\n"
+        "  gzm-client --json junction Nowak-Mosty Będzin Arena\n"
+    )
     p.add_argument(
         "--db",
         default=None,
@@ -25,7 +88,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print JSON output (disables rich stdout rendering)",
     )
 
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(
+        dest="cmd", required=True, parser_class=CustomHelpArgumentParser
+    )
     sub.add_parser(
         "update_api", help="Fetches data from the API and updates the database."
     )
@@ -44,6 +109,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Prints all variants for a junction stop, including stop IDs and served lines.",
     )
     p_j.add_argument("name", nargs=argparse.REMAINDER)
+
+    p_t = sub.add_parser(
+        "trains",
+        help="Lookup cached train station info by name (best-effort closest match).",
+    )
+    p_t.add_argument("name", nargs=argparse.REMAINDER)
 
     p_stop = sub.add_parser("stop", help="Prints upcoming departures from the stop.")
     p_stop.add_argument("stop_id")
@@ -99,6 +170,12 @@ def main(argv: list[str] | None = None) -> int:
     if ns.cmd == "junction":
         name = " ".join(ns.name).strip()
         res = client.junction(name, to_stdout=to_stdout)
+        _emit(res, ns.json)
+        return 0
+
+    if ns.cmd == "trains":
+        name = " ".join(ns.name).strip()
+        res = client.trains(name, to_stdout=to_stdout)
         _emit(res, ns.json)
         return 0
 

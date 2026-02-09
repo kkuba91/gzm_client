@@ -1,5 +1,10 @@
 # CHANGELOG
 
+# 0.3.0
+- Intial refactor of the code inside tool
+- Add scraping for train departures from `portalpasazera.pl`
+- Add getting taxi stands nearby GZM junctions
+
 # 0.2.3
 - Update `README.md` with .gif examples
 - Merge `update_api` into one form
