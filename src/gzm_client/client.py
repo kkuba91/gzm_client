@@ -7,157 +7,61 @@ This module ports the behavior of the standalone mstops.py script into a library
 
 from __future__ import annotations
 
-import asyncio
 import json
-import math
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import httpx
 import requests
 from rich.console import Console, Group
 from rich.panel import Panel
+from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
 from .constants import (
     ALL_STOPS_URL,
     BIKES_NEARBY_METERS,
     DEPARTURE_URL,
-    GZM_BIKES_CITIES_URL,
-    GZM_BIKES_CITY_STATUS_FULL_URL,
-    GZM_BIKES_STATION_STATUS_FULL_URL,
-    GZM_BIKES_STATION_STATUS_SHORT_URL,
-    GZM_BIKES_STATIONS_LOCATIONS_URL,
-    STOP_URL,
-    VEHICLE_ALL_DID_URL,
-    VEHICLE_VID_URL,
     VEHICLE_TYPE,
     TICKET_MACHINES_URL,
+    OVERPASS_URL,
 )
 from .transportation.bikes.station import BikeStation, BikeStationNearby
+from .transportation.bikes.bike import (
+    compact_bike_city_status,
+    compact_bike_station_status,
+)
+from .transportation.bikes.api import (
+    load_bike_cities_from_api,
+    load_bike_city_status_full_from_api,
+    load_bike_station_status_full_from_api,
+    try_load_bike_station_snapshots,
+)
 from .transportation.parsers import (
     find_nearby_bike_stations,
     parse_departures,
-    parse_stop_info,
 )
-from .transportation.stop import Departure
-from .transportation.vehicle import VehicleTripSummary
+from .transportation.stop import (
+    Departure,
+)
+from .transportation.junction import (
+    resolve_junction_details,
+    sort_nearby_bike_occurrences,
+)
+from .transportation.train_station import (
+    TrainStation,
+    build_train_station_record,
+    format_portalpasazera_train_label,
+    try_fetch_portalpasazera_departures,
+    try_fetch_portalpasazera_sid,
+)
+from .transportation.vehicle import try_resolve_vehicle_trip_summary
 from .utils.sql_cache import StopsSqlCache
 
 
 class GzmClient:
     """High-level client exposing mstops-like commands."""
-
-    @staticmethod
-    def _run_async(
-        coro: "asyncio.Future[Any] | asyncio.coroutines.Coroutine[Any, Any, Any]",
-    ) -> Any | None:
-        """Run coroutine from sync code.
-
-        Returns None when already inside a running event loop (so callers can fall back
-        to synchronous implementations).
-        """
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-        return None
-
-    @staticmethod
-    def _parse_bike_stations_locations_payload(payload: Any) -> list[dict[str, Any]]:
-        if not isinstance(payload, dict):
-            raise ValueError("Unexpected station_information format (expected dict).")
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise ValueError("Missing or invalid 'data' field in station_information.")
-        stations = data.get("stations")
-        if not isinstance(stations, list):
-            raise ValueError(
-                "Missing or invalid 'stations' field in station_information."
-            )
-        return stations
-
-    @staticmethod
-    def _parse_bike_stations_status_payload(payload: Any) -> dict[str, dict[str, Any]]:
-        if not isinstance(payload, dict):
-            raise ValueError("Unexpected station_status format (expected dict).")
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise ValueError("Missing or invalid 'data' field in station_status.")
-        stations = data.get("stations")
-        if not isinstance(stations, list):
-            raise ValueError("Missing or invalid 'stations' field in station_status.")
-        status_by_id: dict[str, dict[str, Any]] = {}
-        for s in stations:
-            if not isinstance(s, dict):
-                continue
-            sid = s.get("station_id")
-            if sid is None:
-                continue
-            status_by_id[str(sid)] = s
-        return status_by_id
-
-    async def _load_bike_station_snapshots_async(
-        self,
-    ) -> tuple[list[dict[str, Any]] | None, dict[str, dict[str, Any]] | None]:
-        """Fetch Nextbike station locations + statuses concurrently."""
-        try:
-            timeout = httpx.Timeout(15.0)
-            limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
-            async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-                loc_req = client.get(GZM_BIKES_STATIONS_LOCATIONS_URL)
-                status_req = client.get(GZM_BIKES_STATION_STATUS_SHORT_URL)
-                loc_resp, status_resp = await asyncio.gather(loc_req, status_req)
-                loc_resp.raise_for_status()
-                status_resp.raise_for_status()
-                stations = self._parse_bike_stations_locations_payload(loc_resp.json())
-                status_by_id = self._parse_bike_stations_status_payload(
-                    status_resp.json()
-                )
-                return stations, status_by_id
-        except Exception:
-            return None, None
-
-    async def _fetch_stop_snippets_async(self, stop_ids: list[str]) -> dict[str, str]:
-        """Fetch many stop HTML snippets concurrently (best-effort)."""
-        out: dict[str, str] = {}
-        if not stop_ids:
-            return out
-        sem = asyncio.Semaphore(10)
-        timeout = httpx.Timeout(8.0)
-        limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
-        async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-
-            async def one(sid: str) -> tuple[str, str]:
-                async with sem:
-                    r = await client.get(STOP_URL.format(sid))
-                    r.raise_for_status()
-                    return sid, r.text
-
-            results = await asyncio.gather(
-                *(one(sid) for sid in stop_ids), return_exceptions=True
-            )
-            for item in results:
-                if isinstance(item, Exception):
-                    continue
-                sid, text = item
-                out[str(sid)] = text
-        return out
-
-    @staticmethod
-    def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        r = 6371000.0
-        phi1 = math.radians(float(lat1))
-        phi2 = math.radians(float(lat2))
-        dphi = math.radians(float(lat2) - float(lat1))
-        dlambda = math.radians(float(lon2) - float(lon1))
-        a = (
-            math.sin(dphi / 2) ** 2
-            + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-        )
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return r * c
 
     def __init__(
         self,
@@ -199,14 +103,15 @@ class GzmClient:
         """Fetch the most static data from remote APIs and update the local cache.
 
         Updates the local SQLite cache with the mstops stop list and, best-effort,
-        ticket machines and Nextbike city/region metadata.
+        ticket machines, Nextbike city/region metadata, and train stations from
+        OpenStreetMap via Overpass API.
 
         Args:
             to_stdout: When True, prints status using Rich (mstops-like behavior).
 
         Returns:
             JSON-serializable dict describing what was updated and any non-fatal
-            errors (e.g. Nextbike/ticket machines failures).
+            errors (e.g. Nextbike/ticket machines/train stations failures).
 
         Raises:
             requests.HTTPError: When the main stop list download fails.
@@ -214,11 +119,11 @@ class GzmClient:
         """
         resp = self.session.get(ALL_STOPS_URL, timeout=30)
         resp.raise_for_status()
-        data = resp.json()
-        if not isinstance(data, list):
+        stops_data = resp.json()
+        if not isinstance(stops_data, list):
             raise ValueError("Unexpected mstops payload format (expected list).")
 
-        self.cache.save_stops(data)
+        self.cache.save_stops(stops_data)
 
         ticket_machines_updated = False
         ticket_machines_error: str | None = None
@@ -244,7 +149,7 @@ class GzmClient:
         bikes_updated = False
         bikes_error: str | None = None
         try:
-            regions_payload = self._load_bike_cities_from_api()
+            regions_payload = load_bike_cities_from_api(self.session)
             self.cache.save_bike_cities(
                 regions_payload["regions"],
                 last_updated=regions_payload.get("last_updated"),
@@ -254,33 +159,242 @@ class GzmClient:
         except Exception as e:  # keep mstops behavior: non-fatal
             bikes_error = str(e)
 
+        train_stations_updated = False
+        train_stations_error: str | None = None
+        train_stations_count: int | None = None
+        train_station_sids_total: int | None = None
+        train_station_sids_found: int | None = None
+        train_station_sids_error: str | None = None
+        try:
+            # GZM area coordinates (Katowice region)
+            LAT = 50.26983
+            LON = 18.99881
+            RADIUS = 33000  # meters
+
+            query = f"""[out:json];
+(
+  node["railway"="station"](around:{RADIUS},{LAT},{LON});
+  way["railway"="station"](around:{RADIUS},{LAT},{LON});
+  relation["railway"="station"](around:{RADIUS},{LAT},{LON});
+  node["railway"="stop"](around:{RADIUS},{LAT},{LON});
+);
+out center tags;
+"""
+
+            response = self.session.post(OVERPASS_URL, data=query, timeout=60)
+            response.raise_for_status()
+            overpass_data = response.json()
+
+            # Structure by name
+            by_name = defaultdict(lambda: {"stations": [], "stops": []})
+
+            for el in overpass_data.get("elements", []):
+                tags = el.get("tags", {})
+                name = tags.get("name")
+                if not name:
+                    continue
+
+                if el["type"] == "node":
+                    lat = el.get("lat")
+                    lon = el.get("lon")
+                else:
+                    center = el.get("center", {})
+                    lat = center.get("lat")
+                    lon = center.get("lon")
+
+                if lat is None or lon is None:
+                    continue
+
+                if tags.get("railway") == "station":
+                    by_name[name]["stations"].append((lat, lon))
+                elif tags.get("railway") == "stop":
+                    by_name[name]["stops"].append((lat, lon))
+
+            # Build result JSON
+            result = []
+
+            for name, items in by_name.items():
+                stations = items["stations"]
+                stops = items["stops"]
+
+                rec = build_train_station_record(name, stations, stops)
+                if rec is not None:
+                    result.append(rec)
+
+            # Sort by name
+            result.sort(key=lambda x: x["name"])
+
+            # Enrich stations with Portal Pasażera SID (best-effort)
+            train_station_sids_total = len(result)
+            train_station_sids_found = 0
+            if result:
+                try:
+                    if to_stdout:
+                        with Progress(
+                            TextColumn("[progress.description]{task.description}"),
+                            BarColumn(),
+                            "{task.completed}/{task.total}",
+                            TimeRemainingColumn(),
+                            console=self._console,
+                            transient=True,
+                        ) as progress:
+                            task_id = progress.add_task(
+                                "Fetching train station SIDs",
+                                total=len(result),
+                            )
+                            for st in result:
+                                name = str(st.get("name") or "").strip()
+                                display_name = name[:20].ljust(20)
+                                progress.update(
+                                    task_id,
+                                    description=f"Fetching SID: {display_name}",
+                                )
+                                sid = try_fetch_portalpasazera_sid(self.session, name)
+                                if sid:
+                                    st["sid"] = sid
+                                    train_station_sids_found += 1
+                                progress.advance(task_id)
+                    else:
+                        for st in result:
+                            name = str(st.get("name") or "").strip()
+                            sid = try_fetch_portalpasazera_sid(self.session, name)
+                            if sid:
+                                st["sid"] = sid
+                                train_station_sids_found += 1
+                except Exception as e:
+                    train_station_sids_error = str(e)
+
+            self.cache.save_train_stations(result)
+            train_stations_updated = True
+            train_stations_count = len(result)
+        except Exception as e:  # keep mstops behavior: non-fatal
+            train_stations_error = str(e)
+
+        taxi_stands_updated = False
+        taxi_stands_error: str | None = None
+        taxi_stands_count: int | None = None
+        try:
+            taxi_query = f"""[out:json];
+(
+  node[\"amenity\"=\"taxi\"](around:{RADIUS},{LAT},{LON});
+  way[\"amenity\"=\"taxi\"](around:{RADIUS},{LAT},{LON});
+  relation[\"amenity\"=\"taxi\"](around:{RADIUS},{LAT},{LON});
+);
+out center tags;
+"""
+
+            response = self.session.post(OVERPASS_URL, data=taxi_query, timeout=60)
+            response.raise_for_status()
+            overpass_data = response.json()
+
+            stands: list[dict[str, Any]] = []
+            for el in overpass_data.get("elements", []) or []:
+                if not isinstance(el, dict):
+                    continue
+                tags = el.get("tags", {})
+                if not isinstance(tags, dict):
+                    tags = {}
+
+                el_type = el.get("type")
+                el_id = el.get("id")
+                if el_id is None:
+                    continue
+                osm_id = f"{el_type}/{el_id}"
+
+                if el_type == "node":
+                    lat = el.get("lat")
+                    lon = el.get("lon")
+                else:
+                    center = el.get("center") or {}
+                    lat = center.get("lat") if isinstance(center, dict) else None
+                    lon = center.get("lon") if isinstance(center, dict) else None
+
+                if lat is None or lon is None:
+                    continue
+                try:
+                    lat_f = float(lat)
+                    lon_f = float(lon)
+                except Exception:
+                    continue
+
+                name = tags.get("name")
+                stands.append(
+                    {
+                        "osm_id": osm_id,
+                        "name": str(name) if name is not None else None,
+                        "lat": round(lat_f, 6),
+                        "lon": round(lon_f, 6),
+                        "tags": tags,
+                    }
+                )
+
+            self.cache.save_taxi_stands(stands)
+            taxi_stands_updated = True
+            taxi_stands_count = len(stands)
+        except Exception as e:
+            taxi_stands_error = str(e)
+
         if to_stdout:
+            info_msg = f"⇢ Stops cached: {len(stops_data)}"
+
             if bikes_updated:
-                info_msg = "Updated database from API (stops + bikes)."
+                info_msg += "\n⇢ Nextbike cities cached: YES"
             else:
-                info_msg = "Updated database from API (stops)."
+                info_msg += "\n⇢ Nextbike cities cached: NO"
                 if bikes_error:
                     self._warn(f"failed to update Nextbike bike data: {bikes_error}")
+
             if ticket_machines_updated:
-                info_msg += f"\nTicket machines cached: {ticket_machines_count or 0}"
-                self._print(
-                    Panel(
-                        info_msg,
-                        title="SKUP",
-                        border_style="green",
-                    )
-                )
-            elif ticket_machines_error:
+                info_msg += f"\n⇢ Ticket machines cached: {ticket_machines_count or 0}"
+            else:
+                info_msg += "\n⇢ Ticket machines cached: NO"
+
+            if train_stations_updated:
+                info_msg += f"\n⇢ Train stations cached: {train_stations_count or 0}"
+            else:
+                info_msg += "\n⇢ Train stations cached: NO"
+
+            if taxi_stands_updated:
+                info_msg += f"\n⇢ Taxi stands cached: {taxi_stands_count or 0}"
+            else:
+                info_msg += "\n⇢ Taxi stands cached: NO"
+
+            if (
+                train_station_sids_total is not None
+                and train_station_sids_found is not None
+            ):
+                info_msg += f"\n⇢ Train station SIDs found: {train_station_sids_found}/{train_station_sids_total}"
+
+            self._print(Panel(info_msg, title="UPDATE CACHE", border_style="green"))
+
+            if ticket_machines_error:
                 self._warn(f"failed to update ticket machines: {ticket_machines_error}")
+            if train_stations_error:
+                self._warn(f"failed to update train stations: {train_stations_error}")
+            if train_station_sids_error:
+                self._warn(
+                    f"failed to fetch some train station SIDs: {train_station_sids_error}"
+                )
+            if taxi_stands_error:
+                self._warn(f"failed to update taxi stands: {taxi_stands_error}")
 
         return {
             "updated": "api",
-            "stops_count": len(data),
+            "stops_count": len(stops_data),
             "bikes_updated": bikes_updated,
             "bikes_error": bikes_error,
             "ticket_machines_updated": ticket_machines_updated,
             "ticket_machines_count": ticket_machines_count,
             "ticket_machines_error": ticket_machines_error,
+            "train_stations_updated": train_stations_updated,
+            "train_stations_count": train_stations_count,
+            "train_stations_error": train_stations_error,
+            "train_station_sids_total": train_station_sids_total,
+            "train_station_sids_found": train_station_sids_found,
+            "train_station_sids_error": train_station_sids_error,
+            "taxi_stands_updated": taxi_stands_updated,
+            "taxi_stands_count": taxi_stands_count,
+            "taxi_stands_error": taxi_stands_error,
             "db_path": self.db_path,
         }
 
@@ -320,7 +434,7 @@ class GzmClient:
         }
 
     # -----------------------------
-    # Stops / junctions
+    # GZM Stops / junctions
     # -----------------------------
     def list_by_municipality(
         self, city: str, to_stdout: bool = False
@@ -363,6 +477,138 @@ class GzmClient:
 
         return {"city": city, "stops": grouped}
 
+    def trains(self, name: str, to_stdout: bool = False) -> dict[str, Any]:
+        """Lookup a cached train station by name (best-effort closest match).
+
+        Train stations are populated during :meth:`update_api` (Overpass API) and
+        stored in the local SQLite cache.
+
+        Args:
+            name: Train station name, e.g. ``"Będzin Miasto"``.
+            to_stdout: When True, prints a Rich panel with station details.
+
+        Returns:
+            JSON-serializable dict with ``query`` and either ``station`` or None.
+            If the database is missing, returns ``{"error": "db_missing"}``.
+            If ``name`` is empty/blank, returns ``{"error": "invalid_name"}``.
+        """
+        if not self.cache.exists():
+            if to_stdout:
+                self._error(
+                    "Database does not exist. Run update_file or update_api first."
+                )
+            return {"error": "db_missing"}
+
+        name = (name or "").strip()
+        if not name:
+            if to_stdout:
+                self._warn("Provide a train station name.")
+            return {"error": "invalid_name"}
+
+        station_dict = self.cache.find_train_station_best_match(name)
+        station = TrainStation.from_dict(station_dict) if station_dict else None
+        if station is None:
+            if to_stdout:
+                self._warn("No cached train stations found (run update_api first).")
+            return {"query": name, "station": None}
+
+        sid = station.sid
+        departures_payload: dict[str, Any] | None = None
+        if sid:
+            departures_payload = try_fetch_portalpasazera_departures(
+                self.session, str(sid)
+            )
+
+        if to_stdout:
+            s_name = station.name
+            lat = station.lat
+            lon = station.lon
+            platforms_qty = station.platforms_qty
+
+            info = f"Station: {s_name}    Building location: ({lat}, {lon})"
+
+            dep_table: Table | None = None
+            if departures_payload and isinstance(
+                departures_payload.get("departures"), list
+            ):
+                i = 0
+                max_departures = 10
+                dep_table = Table(
+                    title="Departures (Portal Pasażera)",
+                    border_style="deep_sky_blue1",
+                    title_justify="left",
+                )
+                dep_table.add_column("Time")
+                dep_table.add_column("Train")
+                dep_table.add_column("Destination")
+                dep_table.add_column("Via / info")
+                dep_table.add_column("Platform")
+
+                for d in departures_payload.get("departures") or []:
+                    if not isinstance(d, dict):
+                        continue
+                    train_label = format_portalpasazera_train_label(d)
+                    dep_table.add_row(
+                        str(d.get("time") or ""),
+                        train_label,
+                        str(d.get("destination") or ""),
+                        str(d.get("via") or ""),
+                        str(d.get("platform") or ""),
+                    )
+                    i += 1
+                    if i >= max_departures:
+                        break
+
+            platforms = station.platforms
+            if platforms:
+                pt = Table(
+                    border_style="cyan",
+                    title=f"Platforms quantity: {platforms_qty}",
+                    title_justify="left",
+                )
+                pt.add_column("No.")
+                pt.add_column("lat")
+                pt.add_column("lon")
+                for idx, p in enumerate(platforms, start=1):
+                    pt.add_row(
+                        str(idx),
+                        str(p.lat if p.lat is not None else ""),
+                        str(p.lon if p.lon is not None else ""),
+                    )
+                group_items: list[Any] = [info, f"Platforms: {platforms_qty}"]
+                if dep_table is not None:
+                    group_items.extend(["", dep_table])
+                self._print(
+                    Panel(
+                        Group(*group_items),
+                        title=f"Train station: '{name}'",
+                        border_style="light_slate_blue",
+                    )
+                )
+            else:
+                group_items2: list[Any] = [info]
+                if dep_table is not None:
+                    group_items2.extend(["", dep_table])
+                self._print(
+                    Panel(
+                        Group(*group_items2),
+                        title=f"Train station: '{name}'",
+                        border_style="light_slate_blue",
+                    )
+                )
+
+        return {
+            "query": name,
+            "station": asdict(station),
+            "departures": (departures_payload or {}).get("departures")
+            if departures_payload
+            else [],
+            "departures_station": (departures_payload or {}).get("station")
+            if departures_payload
+            else None,
+            "departures_source": "portalpasazera" if departures_payload else None,
+        }
+
     def junction(self, name: str, to_stdout: bool = False) -> dict[str, Any]:
         """Show information for a stop/junction across all platform variants.
 
@@ -392,130 +638,124 @@ class GzmClient:
                 self._warn("Provide a junction stop name.")
             return {"error": "invalid_name"}
 
-        variants = self.cache.find_stop_variants_by_name(name)
-        if not variants:
+        resolved = resolve_junction_details(
+            cache=self.cache,
+            session=self.session,
+            name=name,
+            bikes_nearby_meters=self.bikes_nearby_meters,
+        )
+        if not resolved.variants:
             if to_stdout:
                 self._warn(f"Stop not found with name: {name}")
             return {"name": name, "variants": []}
 
         renderables: list[Any] = []
 
-        bike_stations, bike_status = self._try_load_bike_station_snapshots()
-        stop_ids = [str(v.get("id")) for v in variants if v.get("id") is not None]
-        snippets_by_id: dict[str, str] = {}
-        async_result = self._run_async(self._fetch_stop_snippets_async(stop_ids))
-        if isinstance(async_result, dict):
-            snippets_by_id = async_result
-        junction_points: list[tuple[float, float]] = []
-        nearby_station_occurrences: dict[str, dict[str, Any]] = {}
+        nearest_train: dict[str, Any] | None = None
+        nearest_train_dist: float | None = None
 
-        # Stop platforms process
-        results: list[dict[str, Any]] = []
-        for v in variants:
-            stop_id = v["id"]
-            alt_id = v["alt_id"]
-            stop_name = v["name"]
-            mun = v["municipality"]
-            lat = v["lat"]
-            lon = v["lon"]
+        best_tm: dict[str, Any] | None = None
+        best_tm_dist: float | None = None
+        best_taxi: dict[str, Any] | None = None
+        best_taxi_dist: float | None = None
+
+        for item in resolved.variants:
+            stop = item.get("stop") or {}
+            stop_name = stop.get("name")
+            stop_id = stop.get("id")
+            alt_id = stop.get("alt_id")
+            mun = stop.get("municipality")
+
+            lat = stop.get("lat")
+            lon = stop.get("lon")
             if lat is not None and lon is not None:
-                junction_points.append((float(lat), float(lon)))
-
-            tm_near: dict[str, Any] | None = None
-            tm_close = False
-            tm_distance_m: float | None = None
-            tm_name: str | None = None
-            if lat is not None and lon is not None:
-                tm_near = self.cache.find_nearest_ticket_machine(
-                    float(lat), float(lon), max_distance_m=300
-                )
-                if isinstance(tm_near, dict):
-                    tm_close = True
-                    tm_distance_m = (
-                        float(tm_near.get("distance_m"))
-                        if tm_near.get("distance_m") is not None
-                        else None
+                try:
+                    cand = self.cache.find_nearest_train_station(
+                        float(lat),
+                        float(lon),
+                        max_distance_m=300,
                     )
-                    tm_name = (
-                        str(tm_near.get("name"))
-                        if tm_near.get("name") is not None
-                        else None
-                    )
+                except Exception:
+                    cand = None
+                if isinstance(cand, dict) and cand.get("distance_m") is not None:
+                    try:
+                        cand_dist = float(cand["distance_m"])
+                    except Exception:
+                        cand_dist = None
+                    if cand_dist is not None and (
+                        nearest_train_dist is None or cand_dist < nearest_train_dist
+                    ):
+                        nearest_train_dist = cand_dist
+                        nearest_train = cand
 
-            stop_snippet = snippets_by_id.get(str(stop_id)) or self._fetch_stop_snippet(
-                stop_id
-            )
-            stop_info = parse_stop_info(stop_snippet)
+            stop_info = item.get("info") or {}
             lines = stop_info.get("lines") or []
             lt = stop_info.get("type") or "N/A"
             lt = "N/A" if isinstance(lt, str) and "br>" in lt else lt
 
-            # Nearby bike stations finding
-            nearby_models: list[BikeStationNearby] = []
-            if bike_stations and bike_status and lat is not None and lon is not None:
-                region_id = self.cache.find_unambiguous_bike_city_id_by_name_part(mun)
-                nearby_models = [
-                    BikeStationNearby.from_dict(d)
-                    for d in find_nearby_bike_stations(
-                        lat,
-                        lon,
-                        bike_stations,
-                        bike_status,
-                        max_distance_m=self.bikes_nearby_meters,
-                        region_id=region_id,
+            tm_close = bool(stop.get("ticket_machine"))
+            tm_distance_m = stop.get("ticket_machine_distance_m")
+            tm_name = stop.get("ticket_machine_name")
+
+            if tm_close:
+                cand = {
+                    "name": tm_name,
+                    "lat": stop.get("ticket_machine_lat"),
+                    "lon": stop.get("ticket_machine_lon"),
+                    "distance_m": tm_distance_m,
+                }
+                try:
+                    cand_dist = (
+                        float(tm_distance_m) if tm_distance_m is not None else None
                     )
-                ]
-                for s in nearby_models:
-                    key = str(s.station_id or s.short_name or s.name or "").strip()
-                    if not key:
-                        continue
-                    occ = nearby_station_occurrences.get(key)
-                    if occ is None:
-                        occ = {
-                            "station_id": s.station_id,
-                            "name": s.name,
-                            "short_name": s.short_name,
-                            "position": s.position,
-                            "bikes_available": s.bikes_available,
-                            "docks_available": s.docks_available,
-                            "distance_samples": [],
-                        }
-                        nearby_station_occurrences[key] = occ
-                    occ["distance_samples"].append(float(s.distance_m or 0.0))
+                except Exception:
+                    cand_dist = None
+                if best_tm is None:
+                    best_tm = cand
+                    best_tm_dist = cand_dist
+                elif cand_dist is not None and (
+                    best_tm_dist is None or cand_dist < best_tm_dist
+                ):
+                    best_tm = cand
+                    best_tm_dist = cand_dist
+
+            taxi_close = bool(stop.get("taxi_stand"))
+            taxi_distance_m = stop.get("taxi_stand_distance_m")
+            taxi_name = stop.get("taxi_stand_name")
+
+            if taxi_close:
+                cand2 = {
+                    "name": taxi_name,
+                    "lat": stop.get("taxi_stand_lat"),
+                    "lon": stop.get("taxi_stand_lon"),
+                    "distance_m": taxi_distance_m,
+                }
+                try:
+                    cand2_dist = (
+                        float(taxi_distance_m) if taxi_distance_m is not None else None
+                    )
+                except Exception:
+                    cand2_dist = None
+                if best_taxi is None:
+                    best_taxi = cand2
+                    best_taxi_dist = cand2_dist
+                elif cand2_dist is not None and (
+                    best_taxi_dist is None or cand2_dist < best_taxi_dist
+                ):
+                    best_taxi = cand2
+                    best_taxi_dist = cand2_dist
 
             if to_stdout:
                 header = f"Stop: {stop_name} | ID={stop_id} | ALT={alt_id} | TYPE={lt} | {mun}"
-                tm_status = "YES" if tm_close else "NO"
-                if tm_close and tm_distance_m is not None:
-                    tm_status = f"YES ({int(round(tm_distance_m))}m)"
                 renderables.append(
                     Panel(
-                        f"Lines: {', '.join(lines) if lines else 'N/A'}\n"
-                        f"Ticket machine: {tm_status}{(' - ' + tm_name) if tm_name else ''}",
+                        f"Lines: {', '.join(lines) if lines else 'N/A'}",
                         title=header,
                         border_style="deep_sky_blue1",
                     )
                 )
 
-            results.append(
-                {
-                    "stop": {
-                        "id": stop_id,
-                        "alt_id": alt_id,
-                        "name": stop_name,
-                        "municipality": mun,
-                        "lat": lat,
-                        "lon": lon,
-                        "ticket_machine": tm_close,
-                        "ticket_machine_distance_m": tm_distance_m,
-                        "ticket_machine_name": tm_name,
-                    },
-                    "info": stop_info,
-                    "nearby_bikes": [asdict(s) for s in nearby_models],
-                }
-            )
-
-        if to_stdout and nearby_station_occurrences:
+        if to_stdout and resolved.nearby_station_occurrences:
             bt = Table(
                 title="Nearby bike stations",
                 border_style="magenta",
@@ -528,36 +768,10 @@ class GzmClient:
             bt.add_column("Bikes")
             bt.add_column("Docks")
 
-            rows: list[tuple[float, dict[str, Any]]] = []
-            for occ in nearby_station_occurrences.values():
-                pos = occ.get("position")
-                avg_dist_m: float | None = None
-                if (
-                    junction_points
-                    and isinstance(pos, list)
-                    and len(pos) == 2
-                    and pos[0] is not None
-                    and pos[1] is not None
-                ):
-                    try:
-                        stat_lat = float(pos[0])
-                        stat_lon = float(pos[1])
-                        dists = [
-                            self._haversine_m(p[0], p[1], stat_lat, stat_lon)
-                            for p in junction_points
-                        ]
-                        avg_dist_m = sum(dists) / len(dists) if dists else None
-                    except Exception:
-                        avg_dist_m = None
-                if avg_dist_m is None:
-                    samples = occ.get("distance_samples") or []
-                    if isinstance(samples, list) and samples:
-                        avg_dist_m = float(sum(samples) / len(samples))
-                    else:
-                        avg_dist_m = 10**9
-                rows.append((avg_dist_m, occ))
-
-            rows.sort(key=lambda x: x[0])
+            rows = sort_nearby_bike_occurrences(
+                resolved.nearby_station_occurrences,
+                resolved.junction_points,
+            )
             for avg_dist_m, occ in rows:
                 short_name = (
                     occ.get("short_name") or occ.get("name") or occ.get("station_id")
@@ -585,11 +799,148 @@ class GzmClient:
             renderables.append("")
             renderables.append(bt)
 
+        nearby_train_station: dict[str, Any] | None = None
+        nearby_train_departures: list[dict[str, Any]] = []
+        if nearest_train is not None:
+            nearby_train_station = dict(nearest_train)
+            sid = nearby_train_station.get("sid")
+            if sid:
+                payload = try_fetch_portalpasazera_departures(self.session, str(sid))
+                deps = (payload or {}).get("departures")
+                if isinstance(deps, list):
+                    nearby_train_departures = [d for d in deps if isinstance(d, dict)]
+
+            if to_stdout:
+                st_name = str(nearby_train_station.get("name") or "")
+                dist_m = nearby_train_station.get("distance_m")
+                dist_out = (
+                    f"{int(round(float(dist_m)))}m" if dist_m is not None else "?"
+                )
+                # sid_out = str(nearby_train_station.get("sid") or "")
+                header = f"Nearby train station: {st_name} ({dist_out})"
+
+                dep_table: Table | None = None
+                if nearby_train_departures:
+                    dep_table = Table(
+                        title="Departures (Portal Pasażera)",
+                        border_style="light_slate_blue",
+                        title_justify="left",
+                    )
+                    dep_table.add_column("Time")
+                    dep_table.add_column("Train")
+                    dep_table.add_column("Destination")
+                    dep_table.add_column("Via / info")
+                    dep_table.add_column("Platform")
+                    for d in nearby_train_departures[:10]:
+                        train_label = format_portalpasazera_train_label(d)
+                        dep_table.add_row(
+                            str(d.get("time") or ""),
+                            train_label,
+                            str(d.get("destination") or ""),
+                            str(d.get("via") or ""),
+                            str(d.get("platform") or ""),
+                        )
+
+                renderables.append("")
+                if dep_table is None:
+                    renderables.append(
+                        Panel(
+                            "Departures: N/A",
+                            title=header,
+                            border_style="light_slate_blue",
+                        )
+                    )
+                else:
+                    renderables.append(
+                        Panel(
+                            Group(
+                                dep_table,
+                            ),
+                            title=header,
+                            border_style="light_slate_blue",
+                        )
+                    )
+
         if to_stdout:
-            title = f"Junction for '{name}' ({len(variants)} stops found)."
+            tm_out = "NO"
+            if best_tm is not None:
+                try:
+                    tm_lat = (
+                        float(best_tm.get("lat"))
+                        if best_tm.get("lat") is not None
+                        else None
+                    )
+                except Exception:
+                    tm_lat = None
+                try:
+                    tm_lon = (
+                        float(best_tm.get("lon"))
+                        if best_tm.get("lon") is not None
+                        else None
+                    )
+                except Exception:
+                    tm_lon = None
+                loc = (
+                    f"({tm_lat}, {tm_lon})"
+                    if tm_lat is not None and tm_lon is not None
+                    else "(N/A)"
+                )
+                nm = str(best_tm.get("name") or "").strip()
+                tm_out = (
+                    f"YES - {nm},  Location: {loc}" if nm else f"YES,  Location: {loc}"
+                )
+
+            taxi_out = "NO"
+            if best_taxi is not None:
+                try:
+                    tx_lat = (
+                        float(best_taxi.get("lat"))
+                        if best_taxi.get("lat") is not None
+                        else None
+                    )
+                except Exception:
+                    tx_lat = None
+                try:
+                    tx_lon = (
+                        float(best_taxi.get("lon"))
+                        if best_taxi.get("lon") is not None
+                        else None
+                    )
+                except Exception:
+                    tx_lon = None
+                loc2 = (
+                    f"({tx_lat}, {tx_lon})"
+                    if tx_lat is not None and tx_lon is not None
+                    else "(N/A)"
+                )
+                nm2 = str(best_taxi.get("name") or "").strip()
+                taxi_out = (
+                    f"YES - {nm2},  Location: {loc2}"
+                    if nm2
+                    else f"YES,  Location: {loc2}"
+                )
+
+            renderables.append("")
+            renderables.append(
+                Panel(
+                    f"Ticket machine: {tm_out}\nTaxi stand: {taxi_out}",
+                    title="Others",
+                    border_style="green",
+                )
+            )
+
+        if to_stdout:
+            title = f"Junction for '{name}' ({len(resolved.variants)} stops found)."
             self._print(Panel(Group(*renderables), title=title, border_style="cyan"))
 
-        return {"name": name, "variants": results}
+        out = resolved.public_result()
+        if nearby_train_station is not None:
+            out["nearby_train_station"] = nearby_train_station
+            out["nearby_train_departures"] = nearby_train_departures
+            out["nearby_train_departures_source"] = (
+                "portalpasazera" if nearby_train_departures else None
+            )
+        return out
 
     def stop_departures(
         self, stop_id: str | int, to_stdout: bool = False
@@ -648,7 +999,7 @@ class GzmClient:
                     else None
                 )
 
-        bike_stations, bike_status = self._try_load_bike_station_snapshots()
+        bike_stations, bike_status = try_load_bike_station_snapshots(self.session)
 
         url = DEPARTURE_URL.format(stop_row["id"])
         html_text = ""
@@ -784,41 +1135,25 @@ class GzmClient:
                 self._warn("Provide a valid did (numeric).")
             return {"error": "invalid_did"}
 
-        url_all = VEHICLE_ALL_DID_URL.format(did_s)
-        try:
-            resp = self.session.get(url_all, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
+        summary, error, vid_error = try_resolve_vehicle_trip_summary(
+            self.session, did_s
+        )
+        if error is not None:
             if to_stdout:
-                self._error(f"Error fetching VEHICLE_ALL_DID_URL: {e}")
-            return {"error": "fetch_failed", "details": str(e)}
+                if error.get("error") == "fetch_failed":
+                    self._error(
+                        f"Error fetching VEHICLE_ALL_DID_URL: {error.get('details', '')}"
+                    )
+                elif error.get("error") == "unexpected_format":
+                    self._error("Unexpected data format (expected dict).")
+                elif error.get("error") == "missing_vehicle":
+                    self._error("Missing or invalid 'vehicle' item in response.")
+            return error
 
-        if not isinstance(data, dict):
-            if to_stdout:
-                self._error("Unexpected data format (expected dict).")
-            return {"error": "unexpected_format"}
+        if vid_error and to_stdout:
+            self._warn(f"error fetching VEHICLE_VID_URL: {vid_error}")
 
-        vehicle = data.get("vehicle")
-        if not isinstance(vehicle, dict):
-            if to_stdout:
-                self._error("Missing or invalid 'vehicle' item in response.")
-            return {"error": "missing_vehicle"}
-
-        vehicle_id = vehicle.get("id")
-        if vehicle_id:
-            url_vid = VEHICLE_VID_URL.format(vehicle_id)
-            try:
-                resp2 = self.session.get(url_vid, timeout=10)
-                resp2.raise_for_status()
-                upd = resp2.json()
-                if isinstance(upd, list) and upd and isinstance(upd[0], dict):
-                    vehicle.update(upd[0])
-            except Exception as e:
-                if to_stdout:
-                    self._warn(f"error fetching VEHICLE_VID_URL: {e}")
-
-        summary = VehicleTripSummary.from_vehicle_all_payload(did_s, data)
+        assert summary is not None
         out = asdict(summary)
 
         if to_stdout:
@@ -885,13 +1220,13 @@ class GzmClient:
             }
 
         try:
-            payload = self._load_bike_city_status_full_from_api(city_id)
+            payload = load_bike_city_status_full_from_api(self.session, city_id)
         except Exception as e:
             if to_stdout:
                 self._error(f"Error fetching Nextbike city status: {e}")
             return {"error": "fetch_failed", "details": str(e)}
 
-        compact = self._compact_bike_city_status(payload, requested_city_id=city_id)
+        compact = compact_bike_city_status(payload, requested_city_id=city_id)
         if to_stdout:
             self._print_bike_city_status_summary(compact)
         return {
@@ -919,13 +1254,13 @@ class GzmClient:
             return {"error": "invalid_station_id"}
 
         try:
-            payload = self._load_bike_station_status_full_from_api(sid)
+            payload = load_bike_station_status_full_from_api(self.session, sid)
         except Exception as e:
             if to_stdout:
                 self._error(f"Error fetching Nextbike station status: {e}")
             return {"error": "fetch_failed", "details": str(e)}
 
-        compact = self._compact_bike_station_status(payload, requested_station_id=sid)
+        compact = compact_bike_station_status(payload, requested_station_id=sid)
         if to_stdout:
             self._print_bike_station_status_summary(compact)
         return {"query": {"station_id": sid}, "summary": compact}
@@ -933,224 +1268,6 @@ class GzmClient:
     # -----------------------------
     # Internals
     # -----------------------------
-    def _load_bike_cities_from_api(self) -> dict[str, Any]:
-        resp = self.session.get(GZM_BIKES_CITIES_URL, timeout=10)
-        resp.raise_for_status()
-        payload = resp.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Unexpected Nextbike response format (expected dict).")
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise ValueError("Missing or invalid 'data' field in Nextbike response.")
-        regions = data.get("regions")
-        if not isinstance(regions, list):
-            raise ValueError("Missing or invalid 'regions' field in Nextbike response.")
-        return {
-            "regions": regions,
-            "last_updated": payload.get("last_updated"),
-            "ttl": payload.get("ttl"),
-        }
-
-    def _try_load_bike_station_snapshots(
-        self,
-    ) -> tuple[list[dict[str, Any]] | None, dict[str, dict[str, Any]] | None]:
-        async_result = self._run_async(self._load_bike_station_snapshots_async())
-        if isinstance(async_result, tuple) and len(async_result) == 2:
-            return async_result
-        try:
-            stations = self._load_bike_stations_locations_from_api()
-            status = self._load_bike_stations_status_from_api()
-            return stations, status
-        except Exception:
-            return None, None
-
-    def _load_bike_stations_locations_from_api(self) -> list[dict[str, Any]]:
-        resp = self.session.get(GZM_BIKES_STATIONS_LOCATIONS_URL, timeout=15)
-        resp.raise_for_status()
-        return self._parse_bike_stations_locations_payload(resp.json())
-
-    def _load_bike_stations_status_from_api(self) -> dict[str, dict[str, Any]]:
-        resp = self.session.get(GZM_BIKES_STATION_STATUS_SHORT_URL, timeout=15)
-        resp.raise_for_status()
-        return self._parse_bike_stations_status_payload(resp.json())
-
-    def _load_bike_city_status_full_from_api(self, city_id: str) -> dict[str, Any]:
-        url = GZM_BIKES_CITY_STATUS_FULL_URL.format(city_id)
-        resp = self.session.get(url, timeout=20)
-        resp.raise_for_status()
-        payload = resp.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Unexpected nextbike-live.json format (expected dict).")
-        return payload
-
-    def _load_bike_station_status_full_from_api(
-        self, station_id: str
-    ) -> dict[str, Any]:
-        url = GZM_BIKES_STATION_STATUS_FULL_URL.format(station_id)
-        resp = self.session.get(url, timeout=20)
-        resp.raise_for_status()
-        payload = resp.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Unexpected nextbike-live.json format (expected dict).")
-        return payload
-
-    def _fetch_stop_snippet(self, stop_id: str) -> str:
-        url = STOP_URL.format(stop_id)
-        resp = self.session.get(url, timeout=8)
-        resp.raise_for_status()
-        return resp.text
-
-    def _compact_bike_city_status(
-        self, payload: dict[str, Any], requested_city_id: str | None = None
-    ) -> dict[str, Any]:
-        countries = payload.get("countries")
-        if not isinstance(countries, list) or not countries:
-            return {"error": "Missing 'countries' field in Nextbike response."}
-        country = countries[0] if isinstance(countries[0], dict) else {}
-        cities = country.get("cities")
-        if not isinstance(cities, list) or not cities:
-            return {"error": "Missing 'cities' field in Nextbike response."}
-
-        chosen_city: dict[str, Any] | None = None
-        if requested_city_id is not None:
-            try:
-                req_int = int(str(requested_city_id))
-            except ValueError:
-                req_int = None
-            if req_int is not None:
-                for c in cities:
-                    if not isinstance(c, dict):
-                        continue
-                    if c.get("uid") == req_int or str(c.get("uid")) == str(
-                        requested_city_id
-                    ):
-                        chosen_city = c
-                        break
-        if chosen_city is None:
-            chosen_city = cities[0] if isinstance(cities[0], dict) else {}
-
-        places = chosen_city.get("places")
-        if not isinstance(places, list):
-            places = []
-
-        compact_places = []
-        for p in places:
-            if not isinstance(p, dict):
-                continue
-            compact_places.append(
-                {
-                    "station_id": p.get("uid"),
-                    "pos": (p.get("lat"), p.get("lng")),
-                    "station_nr": p.get("number"),
-                    "available": p.get("bikes_available_to_rent"),
-                    "rack_size": p.get("bike_racks"),
-                    "free_racks": p.get("free_racks"),
-                    "bike_list": p.get("bike_numbers"),
-                }
-            )
-
-        return {
-            "country": {
-                "name": country.get("name"),
-                "hotline": str(country.get("hotline")).replace(" ", ""),
-            },
-            "city": {
-                "name": chosen_city.get("name"),
-                "uid": chosen_city.get("uid"),
-                "num_places": chosen_city.get("num_places"),
-                "booked": chosen_city.get("booked_bikes"),
-                "available": chosen_city.get("available_bikes"),
-            },
-            "stations": compact_places,
-        }
-
-    def _compact_bike_station_status(
-        self,
-        payload: dict[str, Any],
-        requested_station_id: str | None = None,
-    ) -> dict[str, Any]:
-        countries = payload.get("countries")
-        if not isinstance(countries, list) or not countries:
-            return {"error": "Missing 'countries' field in Nextbike response."}
-        country = countries[0] if isinstance(countries[0], dict) else {}
-        cities = country.get("cities")
-        if not isinstance(cities, list) or not cities:
-            return {"error": "Missing 'cities' field in Nextbike response."}
-
-        req_int: int | None = None
-        if requested_station_id is not None:
-            try:
-                req_int = int(str(requested_station_id))
-            except ValueError:
-                req_int = None
-
-        chosen_city: dict[str, Any] | None = None
-        chosen_place: dict[str, Any] | None = None
-
-        for c in cities:
-            if not isinstance(c, dict):
-                continue
-            places = c.get("places")
-            if not isinstance(places, list):
-                continue
-            for p in places:
-                if not isinstance(p, dict):
-                    continue
-                uid = p.get("uid")
-                if req_int is None:
-                    chosen_city = c
-                    chosen_place = p
-                    break
-                if uid == req_int or str(uid) == str(requested_station_id):
-                    chosen_city = c
-                    chosen_place = p
-                    break
-            if chosen_place is not None:
-                break
-
-        if chosen_place is None:
-            return {"error": "Station not found in Nextbike response."}
-
-        bike_list = chosen_place.get("bike_list")
-        if not isinstance(bike_list, list):
-            bike_list = []
-        compact_bikes = []
-        for b in bike_list:
-            if not isinstance(b, dict):
-                continue
-            compact_bikes.append(
-                {
-                    "number": b.get("number"),
-                    "bike_type": b.get("bike_type"),
-                    "active": b.get("active"),
-                    "state": b.get("state"),
-                    "electric_lock": b.get("electric_lock"),
-                    "board_id": b.get("boardcomputer"),
-                }
-            )
-
-        return {
-            "context": {
-                "city": {
-                    "name": (chosen_city or {}).get("name"),
-                    "uid": (chosen_city or {}).get("uid"),
-                },
-                "country": {
-                    "name": country.get("name"),
-                    "hotline": str(country.get("hotline")).replace(" ", ""),
-                },
-            },
-            "station": {
-                "uid": chosen_place.get("uid"),
-                "pos": (chosen_place.get("lat"), chosen_place.get("lng")),
-                "name": chosen_place.get("name") or chosen_place.get("number"),
-                "available": chosen_place.get("bikes_available_to_rent"),
-                "rack_size": chosen_place.get("bike_racks"),
-                "free_racks": chosen_place.get("free_racks"),
-                "bike_list": compact_bikes,
-            },
-        }
-
     def _print_bike_city_status_summary(self, compact: dict[str, Any]) -> None:
         if "error" in compact:
             self._error(str(compact["error"]))

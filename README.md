@@ -2,19 +2,25 @@
 
 [![gzm_client](https://github.com/kkuba91/gzm_client/actions/workflows/python-package.yml/badge.svg)](https://github.com/kkuba91/gzm_client/actions/workflows/python-package.yml)
 
-Python library + CLI for GZM public transport data (stops, departures, vehicles) with optional integrations:
+Python CLI tool (client) for GZM public transport data scrapping and collect. Data is focused on Poland's (🇵🇱) Silesian Voivodeship transportation.
+Supports i.e. junction views using scrapped data from multiple sources and presents in a consistent way as well for humans as for further processing (JSON output, Python API return values). The main data sources are:
 
-- GZM SDIP endpoints (stops list, departures, simplified vehicle info)
-- GZM RJ endpoint (ticket machines / ŚKUP)
-- Nextbike GBFS (bike stations + availability)
+- 🚏🚌🚋🚎 GZM SDIP endpoints (stops list, departures, simplified vehicle info)
+- 🎰 GZM RJ endpoint (ticket machines / ŚKUP)
+- 🚲 Nextbike API info (bike stations + availability)
+- 🚅 Train departures (scrapped from `portalpasazera.pl` - open data source, but unofficial)
+- 🚕 Taxi stands nearby GZM junctions (from openstreetmap.org)
 
 All upstream URLs used by this project are centralized in: [src/gzm_client/constants.py](src/gzm_client/constants.py)
 
-Library works as client proxy for getting the most interesting data for public transport Users and returning them as:
+The tool works as client/scrapper proxy for getting the most interesting data for public transport, which may be presented as combined junctions views (stops + nearby bike stations + ticket machines info) or for tracking vehicles by their departure/vehicle ids.
 
- - pretty Rich tables/panels (CLI mode)
- - JSON output (`--json` CLI flag)
+Usage ways:
+ - pretty Rich tables/panels returned to stdout in CLI mode
+ - JSON output (`--json` CLI flag - use at the beginning of the command) - to get JSON scrapped data
  - Python API return values as dicts/lists (from `gzm_client.client`)
+
+Partial cache is used for storing static data (stops list, train station list, ticket machine list, Nextbike city list) in a local SQLite database (default: `stops.db` in the current working directory). This allows to minimize the number of requests to upstream APIs and speed up the junctions view rendering. Cache can be updated by `update_api` or `update_file` commands.
 
 ## Requirements
 
@@ -49,6 +55,14 @@ print(data["name"], len(data["variants"]))
 Help output:
 
 ```text
+     _____  ______ __  __ 
+    / ____||___  /|  \/  |
+   | |  __    / / | \  / |
+   | | |_ |  / /  | |\/| |
+   | |__| | / /__ | |  | |
+    \_____|/_____||_|  |_| - client
+  The web scrapper for transportation data in the GZM area, Poland.
+
 gzm-client -h
 usage: gzm-client [-h] [--db DB] [--json] {update_api,update_file,list,junction,stop,go,bikes} ...
 
@@ -58,6 +72,7 @@ positional arguments:
 		update_file         Loads data from a local JSON file and updates the database.
 		list                Lists stops for the given city.
 		junction            Prints all variants for a junction stop, including stop IDs and served lines.
+		trains              Lookup cached train station info by name (best-effort closest match).
 		stop                Prints upcoming departures from the stop.
 		go                  Fetches trip data by did (vehicle-all), enriches it by vid and prints a summary.
 		bikes               Nextbike (GZM bikes) related commands.
@@ -66,6 +81,12 @@ options:
 	-h, --help            show this help message and exit
 	--db DB               SQLite database path (default: stops.db in current working dir)
 	--json                Print JSON output (disables rich stdout rendering)
+
+Examples:
+    gzm-client update_api
+    gzm-client list Katowice
+    gzm-client junction Nowak-Mosty Będzin Arena
+    gzm-client --json junction Nowak-Mosty Będzin Arena
 ```
 
 ### Global options
@@ -102,9 +123,11 @@ Examples:
 - `gzm-client junction STOP_NAME...`
 	- Prints all stop variants (platforms) for an exact junction name
 	- Includes:
-		- served lines
-		- nearby Nextbike stations (with average distance)
+		- served GZM lines
+		- nearby Nextbike stations
+    - nearby train stations (if any, based on the closest name match in the cached train station list)
 		- ticket machine proximity info (300m radius)
+    - nearby taxi stands
 
 ![junction](./img/junction.gif)
 
@@ -197,7 +220,18 @@ Example:
 
 ![go](./img/go.gif)
 
-#### 4) Nextbike (GZM bikes)
+#### 4) Train departures on the station
+
+- `gzm-client trains STATION_NAME...`
+  - Lookup cached train station info by name (best-effort closest match) and prints departures for it (scrapped from `portalpasazera.pl`)
+  - List also the very basic info about the station (name, id, location, platforms quantity)
+
+Example:
+- `gzm-client trains Katowice`
+
+![trains](./img/trains.gif)
+
+#### 5) Nextbike (GZM bikes)
 
 - `gzm-client bikes city CITY_PREFIX...`
 	- Resolves a city/region from the cached region list and prints a summary with station count, total bikes/docks
@@ -222,5 +256,7 @@ This project tries to present a consistent mstops-like interface while integrati
 - **SDIP (transportgzm.pl)**: stops list, stop departures, vehicle endpoints
 - **RJ API (rj.transportgzm.pl)**: ticket machines (ŚKUP)
 - **Nextbike GBFS**: station locations + station status for GZM area
+- **Train departures**: scrapped from `portalpasazera.pl` (unofficial, open data source)
+- **Taxi stands**: scrapped from OpenStreetMap API (overpass) based on proximity to the stop location
 
 See the exact endpoints in: [src/gzm_client/constants.py](src/gzm_client/constants.py)
